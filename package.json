@@ -2,7 +2,7 @@
   "name": "ascii-project-tree",
   "version": "1.0.0",
   "description": "Generate ascii tree of the project",
-  "main": "generate-tree.js",
+  "main": "ascii-project-tree.js",
   "directories": {
     "test": "test"
   },
