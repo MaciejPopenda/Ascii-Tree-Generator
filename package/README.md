@@ -2,8 +2,8 @@
 
 A powerful Node.js command-line tool that generates beautiful ASCII directory tree structures for your projects. Perfect for documentation, AI / vibe coding and sharing your project structure.
 
-[![npm version](https://badge.fury.io/js/YOUR_PACKAGE_NAME.svg)](https://badge.fury.io/js/YOUR_PACKAGE_NAME)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![npm version](https://badge.fury.io/js/YOUR_PACKAGE_NAME.svg)](https://www.npmjs.com/package/ascii-tree-generator)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ## ✨ Features
 
@@ -248,7 +248,7 @@ This shows:
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](PLACEHOLDER_CONTRIBUTING_URL) for details.
+We welcome contributions! Please see our [Contributing Guide](https://github.com/MaciejPopenda/Ascii-Tree-Generator/blob/main/HOW-TO-CONTRIBUTE.md) for details.
 
 
 ## 📄 License
@@ -257,9 +257,9 @@ This project is licensed under the MIT License.
 
 ## 🔗 Links
 
-- [npm package](PLACEHOLDER_NPM_URL)
+- [npm package](https://www.npmjs.com/package/ascii-tree-generator)
 - [Issue Tracker](https://github.com/MaciejPopenda/Ascii-Tree-Generator/issues)
-- [Changelog](PLACEHOLDER_CHANGELOG_URL)
+- [Changelog](https://github.com/MaciejPopenda/Ascii-Tree-Generator/blob/main/CHANGELOG.md)
 
 ---
 
