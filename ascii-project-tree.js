@@ -72,6 +72,59 @@ class AsciiTreeGenerator {
     }
   }
 
+  matchesPattern(pattern, itemName, relativePath) {
+    const normalizedRelativePath = relativePath.split(path.sep).join('/');
+    const normalizedPattern = pattern.split(path.sep).join('/');
+    
+    // Handle wildcard patterns
+    if (pattern.includes('*') || pattern.includes('?')) {
+      const regexPattern = normalizedPattern
+        .replace(/\./g, '\\.')
+        .replace(/\*/g, '.*')
+        .replace(/\?/g, '.');
+      
+      const regex = new RegExp(`^${regexPattern}$`);
+      
+      if (regex.test(itemName) || regex.test(normalizedRelativePath)) {
+        return true;
+      }
+      
+      // Check parent directories
+      const pathParts = normalizedRelativePath.split('/');
+      for (let i = 0; i < pathParts.length; i++) {
+        const partialPath = pathParts.slice(0, i + 1).join('/');
+        if (regex.test(partialPath)) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
+    
+    // Exact name match
+    if (itemName === normalizedPattern) return true;
+    if (normalizedRelativePath === normalizedPattern) return true;
+    
+    // Handle directory-specific patterns
+    if (normalizedPattern.includes('/')) {
+      if (normalizedRelativePath.startsWith(normalizedPattern + '/') || 
+          normalizedRelativePath === normalizedPattern) {
+        return true;
+      }
+    } else {
+      const pathParts = normalizedRelativePath.split('/');
+      
+      if (pathParts.includes(normalizedPattern)) return true;
+      
+      if (normalizedRelativePath.endsWith('/' + normalizedPattern) || 
+          normalizedRelativePath === normalizedPattern) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
   loadIgnorePatterns() {
     let patterns = [...ALWAYS_IGNORE];
     
@@ -85,7 +138,11 @@ class AsciiTreeGenerator {
           const content = fs.readFileSync(gitignorePath, 'utf8');
           const gitignorePatterns = this.parseGitignoreContent(content);
           patterns.push(...gitignorePatterns);
-          console.log(`Loaded ${gitignorePatterns.length} patterns from .gitignore (${gitignorePath})`);
+          
+          const negationCount = gitignorePatterns.filter(p => p.isNegation).length;
+          const ignoreCount = gitignorePatterns.length - negationCount;
+          
+          console.log(`Loaded ${ignoreCount} ignore patterns and ${negationCount} negation patterns from .gitignore (${gitignorePath})`);
         } catch (err) {
           console.warn(`Warning: Could not read .gitignore at ${gitignorePath}: ${err.message}`);
           patterns.push(...DEFAULT_IGNORE_PATTERNS);
@@ -96,6 +153,7 @@ class AsciiTreeGenerator {
       }
     }
     
+    // Add command-line exceptions as strings
     patterns.push(...this.options.exceptDirs);
     patterns.push(...this.options.exceptFiles);
     
@@ -138,8 +196,14 @@ class AsciiTreeGenerator {
     for (let line of lines) {
       line = line.trim();
       
+      // Skip empty lines and comments
       if (!line || line.startsWith('#')) continue;
-      if (line.startsWith('!')) continue; // Skip negation patterns for now
+      
+      // Handle negation patterns
+      const isNegation = line.startsWith('!');
+      if (isNegation) {
+        line = line.slice(1); // Remove the ! prefix
+      }
       
       // Clean up directory and root patterns
       if (line.endsWith('/')) {
@@ -149,64 +213,42 @@ class AsciiTreeGenerator {
         line = line.slice(1);
       }
       
-      patterns.push(line);
+      // Store pattern with negation flag
+      patterns.push({
+        pattern: line,
+        isNegation: isNegation
+      });
     }
     
     return patterns;
   }
 
   shouldIgnore(itemName, relativePath) {
-    return this.ignorePaths.some(pattern => {
-      const normalizedRelativePath = relativePath.split(path.sep).join('/');
-      const normalizedPattern = pattern.split(path.sep).join('/');
-      
-      // Handle wildcard patterns
-      if (pattern.includes('*')) {
-        const regexPattern = normalizedPattern
-          .replace(/\./g, '\\.')
-          .replace(/\*/g, '.*')
-          .replace(/\?/g, '.');
-        
-        const regex = new RegExp(`^${regexPattern}$`);
-        
-        if (regex.test(itemName) || regex.test(normalizedRelativePath)) {
-          return true;
+    let shouldIgnoreItem = false;
+    
+    // Process patterns in order (important for negation)
+    for (const patternObj of this.ignorePaths) {
+      // Handle legacy string patterns (for DEFAULT_IGNORE_PATTERNS and ALWAYS_IGNORE)
+      if (typeof patternObj === 'string') {
+        if (this.matchesPattern(patternObj, itemName, relativePath)) {
+          shouldIgnoreItem = true;
         }
-        
-        // Check parent directories
-        const pathParts = normalizedRelativePath.split('/');
-        for (let i = 0; i < pathParts.length; i++) {
-          const partialPath = pathParts.slice(0, i + 1).join('/');
-          if (regex.test(partialPath)) {
-            return true;
-          }
-        }
-        
-        return false;
+        continue;
       }
       
-      if (itemName === normalizedPattern) return true;
-      if (normalizedRelativePath === normalizedPattern) return true;
+      // Handle object patterns with negation support
+      const { pattern, isNegation } = patternObj;
       
-      // Handle directory-specific patterns
-      if (normalizedPattern.includes('/')) {
-        if (normalizedRelativePath.startsWith(normalizedPattern + '/') || 
-            normalizedRelativePath === normalizedPattern) {
-          return true;
-        }
-      } else {
-        const pathParts = normalizedRelativePath.split('/');
-        
-        if (pathParts.includes(normalizedPattern)) return true;
-        
-        if (normalizedRelativePath.endsWith('/' + normalizedPattern) || 
-            normalizedRelativePath === normalizedPattern) {
-          return true;
+      if (this.matchesPattern(pattern, itemName, relativePath)) {
+        if (isNegation) {
+          shouldIgnoreItem = false;
+        } else {
+          shouldIgnoreItem = true;
         }
       }
-      
-      return false;
-    });
+    }
+    
+    return shouldIgnoreItem;
   }
 
   shouldIncludeByPatterns(itemName, relativePath, isDirectory) {
