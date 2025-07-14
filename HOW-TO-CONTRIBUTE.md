@@ -6,8 +6,8 @@ Thanks for your interest in contributing!
 
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/yourusername/your-repo-name.git
-   cd your-repo-name
+   git clone https://github.com/MaciejPopenda/Ascii-Tree-Generator/.git
+   cd Ascii-Tree-Generator
    ```
 
 2. Create a branch for your changes:
