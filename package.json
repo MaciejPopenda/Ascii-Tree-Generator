@@ -1,8 +1,8 @@
 {
-  "name": "ascii-project-tree",
+  "name": "ascii-tree-generator",
   "version": "1.0.0",
   "description": "Generate ascii tree of the project",
-  "main": "ascii-project-tree.js",
+  "main": "ascii-tree-generator.js",
   "directories": {
     "test": "test"
   },
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MaciejPopenda/ascii-project-tree.git"
+    "url": "git+https://github.com/MaciejPopenda/ascii-tree-generator.git"
   },
   "keywords": [
     "ascii",
@@ -20,9 +20,9 @@
     "generator"
   ],
   "author": "Maciej Popenda",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/MaciejPopenda/ascii-project-tree/issues"
+    "url": "https://github.com/MaciejPopenda/ascii-tree-generator/issues"
   },
-  "homepage": "https://github.com/MaciejPopenda/ascii-project-tree#readme"
+  "homepage": "https://github.com/MaciejPopenda/ascii-tree-generator#readme"
 }
