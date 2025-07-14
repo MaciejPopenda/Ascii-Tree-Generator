@@ -6,7 +6,7 @@ Thanks for your interest in contributing!
 
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/MaciejPopenda/Ascii-Tree-Generator/.git
+   git clone https://github.com/MaciejPopenda/Ascii-Tree-Generator.git
    cd Ascii-Tree-Generator
    ```
 
