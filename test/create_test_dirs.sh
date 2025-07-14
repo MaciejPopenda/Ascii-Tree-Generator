@@ -126,7 +126,7 @@ generate_nodejs_project() {
     echo "✅ Node.js project structure created in '$project_name'"
 }
 
-# Script 4: Complex Full-Stack Project
+# Script 4: Complex Full-Stack Project 
 generate_fullstack_project() {
     local project_name="fullstack-test-project"
     
