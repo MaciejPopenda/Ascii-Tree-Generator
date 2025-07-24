@@ -385,10 +385,20 @@ class AsciiTreeGenerator {
   }
 
   run() {
+
+    const displayPatterns = this.ignorePaths.map(pattern => {
+      if (typeof pattern === 'string') {
+        return pattern;
+      } else if (pattern && typeof pattern === 'object') {
+        return pattern.isNegation ? `!${pattern.pattern}` : pattern.pattern;
+      }
+      return String(pattern);
+    }).join(', ');
+
     const projectName = path.basename(process.cwd());
     
     console.log(`Generating ASCII tree for: ${projectName}`);
-    console.log(`Ignoring patterns: ${this.ignorePaths.join(', ')}`);
+    console.log(`Ignoring patterns: ${displayPatterns}`);
     
     if (this.options.includePattern) {
       console.log(`Include pattern: ${this.options.includePattern}`);
