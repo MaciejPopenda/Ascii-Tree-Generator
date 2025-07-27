@@ -42,7 +42,8 @@ class AsciiTreeGenerator {
       ...options
     };
     
-    this.ignorePaths = this.loadIgnorePatterns();
+    this.projectRoot = process.cwd();
+    this.gitignoreFiles = this.findAllGitignores();
     this.includeRegex = this.createRegex(this.options.includePattern, 'include');
     this.excludeRegex = this.createRegex(this.options.excludePattern, 'exclude');
   }
@@ -72,6 +73,204 @@ class AsciiTreeGenerator {
       console.error(`Error creating ${type} regex from pattern "${pattern}": ${e.message}`);
       return null;
     }
+  }
+
+  // Recursively find all .gitignore files in the project
+  findAllGitignores() {
+    const gitignoreFiles = [];
+    
+    if (this.options.all) {
+      console.log('Using --all flag: including all files except system files');
+      return this.createDefaultGitignoreStructure();
+    }
+
+    this.findGitignoresRecursive(this.projectRoot, '', gitignoreFiles);
+    
+    if (gitignoreFiles.length === 0) {
+      console.log('No .gitignore files found, using default ignore patterns');
+      return this.createDefaultGitignoreStructure();
+    }
+
+    // Sort by specificity (root first, then more specific)
+    gitignoreFiles.sort((a, b) => a.relativePath.length - b.relativePath.length);
+    
+    const totalPatterns = gitignoreFiles.reduce((sum, gi) => sum + gi.patterns.length, 0);
+    console.log(`Found ${gitignoreFiles.length} .gitignore file(s) with ${totalPatterns} total patterns:`);
+    gitignoreFiles.forEach(gi => {
+      const location = gi.relativePath === '' ? 'root' : gi.relativePath;
+      console.log(`  - ${location}: ${gi.patterns.length} patterns`);
+    });
+
+    return gitignoreFiles;
+  }
+
+  createDefaultGitignoreStructure() {
+    const patterns = [...ALWAYS_IGNORE, ...DEFAULT_IGNORE_PATTERNS];
+    
+    // Add command-line exceptions
+    patterns.push(...this.options.exceptDirs);
+    patterns.push(...this.options.exceptFiles);
+    
+    return [{
+      absolutePath: this.projectRoot,
+      relativePath: '',
+      patterns: patterns.map(pattern => ({
+        pattern: typeof pattern === 'string' ? pattern : pattern.pattern,
+        isNegation: typeof pattern === 'object' ? pattern.isNegation : false
+      }))
+    }];
+  }
+
+  findGitignoresRecursive(currentDir, relativePath, gitignoreFiles) {
+    try {
+      const items = fs.readdirSync(currentDir);
+      
+      // Check for .gitignore in current directory first
+      if (items.includes('.gitignore')) {
+        const gitignorePath = path.join(currentDir, '.gitignore');
+        
+        try {
+          const content = fs.readFileSync(gitignorePath, 'utf8').trim();
+          if (content.length > 0) {
+            const patterns = this.parseGitignoreContent(content);
+            
+            // Add ALWAYS_IGNORE patterns to root .gitignore only
+            if (relativePath === '') {
+              const alwaysIgnorePatterns = ALWAYS_IGNORE.map(pattern => ({
+                pattern,
+                isNegation: false
+              }));
+              patterns.unshift(...alwaysIgnorePatterns);
+            }
+            
+            // Add command-line exceptions to root .gitignore only
+            if (relativePath === '') {
+              const exceptPatterns = [
+                ...this.options.exceptDirs,
+                ...this.options.exceptFiles
+              ].map(pattern => ({
+                pattern,
+                isNegation: false
+              }));
+              patterns.push(...exceptPatterns);
+            }
+            
+            gitignoreFiles.push({
+              absolutePath: currentDir,
+              relativePath: relativePath,
+              patterns: patterns
+            });
+          }
+        } catch (err) {
+          console.warn(`Warning: Could not read .gitignore at ${gitignorePath}: ${err.message}`);
+        }
+      }
+      
+      // Recursively search subdirectories that are not ignored
+      for (const item of items) {
+        const itemPath = path.join(currentDir, item);
+        const itemRelativePath = relativePath ? path.join(relativePath, item) : item;
+        
+        try {
+          const stats = fs.statSync(itemPath);
+          if (stats.isDirectory()) {
+            // Skip known system directories to avoid deep recursion
+            if (ALWAYS_IGNORE.includes(item)) {
+              continue;
+            }
+            
+            // Check if this directory is ignored by .gitignore files we've found so far
+            if (this.isDirectoryIgnoredBySoFar(item, itemRelativePath, gitignoreFiles)) {
+              if (this.options.debug) {
+                console.log(`Skipping ignored directory: ${itemRelativePath}`);
+              }
+              continue;
+            }
+            
+            this.findGitignoresRecursive(itemPath, itemRelativePath, gitignoreFiles);
+          }
+        } catch (err) {
+          // Skip inaccessible directories
+          continue;
+        }
+      }
+    } catch (err) {
+      console.warn(`Warning: Could not read directory ${currentDir}: ${err.message}`);
+    }
+  }
+
+  parseGitignoreContent(content) {
+    const patterns = [];
+    const lines = content.split('\n');
+    
+    for (let line of lines) {
+      line = line.trim();
+      
+      // Skip empty lines and comments
+      if (!line || line.startsWith('#')) continue;
+      
+      // Handle negation patterns
+      const isNegation = line.startsWith('!');
+      if (isNegation) {
+        line = line.slice(1); // Remove the ! prefix
+      }
+      
+      // Clean up directory and root patterns
+      if (line.endsWith('/')) {
+        line = line.slice(0, -1);
+      }
+      if (line.startsWith('/')) {
+        line = line.slice(1);
+      }
+      
+      // Store pattern with negation flag
+      patterns.push({
+        pattern: line,
+        isNegation: isNegation
+      });
+    }
+    
+    return patterns;
+  }
+
+  // Check if a directory should be ignored based on .gitignore files found so far
+  isDirectoryIgnoredBySoFar(itemName, relativePath, gitignoreFiles) {
+    // Get directory path of the item
+    const itemDirectory = path.dirname(relativePath);
+    const normalizedItemDir = itemDirectory === '.' ? '' : itemDirectory;
+    
+    // Find all .gitignore files that apply to this path
+    const applicableGitignores = gitignoreFiles.filter(gitignore => {
+      return this.isPathInDirectory(normalizedItemDir, gitignore.relativePath);
+    });
+    
+    // Sort by specificity (root first, then more specific)
+    applicableGitignores.sort((a, b) => a.relativePath.length - b.relativePath.length);
+    
+    let shouldIgnoreItem = false;
+    
+    // Apply patterns in hierarchical order
+    for (const gitignore of applicableGitignores) {
+      // Calculate relative path from this .gitignore's directory to the item
+      let relativeFromGitignore;
+      if (gitignore.relativePath === '') {
+        relativeFromGitignore = relativePath;
+      } else {
+        relativeFromGitignore = path.relative(gitignore.relativePath, relativePath);
+      }
+      
+      // Normalize path separators
+      relativeFromGitignore = relativeFromGitignore.split(path.sep).join('/');
+      
+      // Apply patterns from this .gitignore
+      for (const patternObj of gitignore.patterns) {
+        if (this.matchesPattern(patternObj.pattern, itemName, relativeFromGitignore)) {
+          shouldIgnoreItem = patternObj.isNegation ? false : true;
+        }
+      }
+    }
+    
+    return shouldIgnoreItem;
   }
 
   matchesPattern(pattern, itemName, relativePath) {
@@ -127,127 +326,78 @@ class AsciiTreeGenerator {
     return false;
   }
 
-  loadIgnorePatterns() {
-    let patterns = [...ALWAYS_IGNORE];
+  // Check if a path is within a directory or its subdirectories
+  isPathInDirectory(itemPath, directoryPath) {
+    if (directoryPath === '') return true; // Root applies to everything
     
-    if (this.options.all) {
-      console.log('Using --all flag: including all files except system files');
-    } else {
-      const gitignorePath = this.findGitignore();
-      
-      if (gitignorePath) {
-        try {
-          const content = fs.readFileSync(gitignorePath, 'utf8');
-          const gitignorePatterns = this.parseGitignoreContent(content);
-          patterns.push(...gitignorePatterns);
-          
-          const negationCount = gitignorePatterns.filter(p => p.isNegation).length;
-          const ignoreCount = gitignorePatterns.length - negationCount;
-          
-          console.log(`Loaded ${ignoreCount} ignore patterns and ${negationCount} negation patterns from .gitignore (${gitignorePath})`);
-        } catch (err) {
-          console.warn(`Warning: Could not read .gitignore at ${gitignorePath}: ${err.message}`);
-          patterns.push(...DEFAULT_IGNORE_PATTERNS);
-        }
-      } else {
-        console.log('No .gitignore found in current or parent directories, using default ignore patterns');
-        patterns.push(...DEFAULT_IGNORE_PATTERNS);
-      }
-    }
+    const normalizedItemPath = itemPath.split(path.sep).join('/');
+    const normalizedDirPath = directoryPath.split(path.sep).join('/');
     
-    // Add command-line exceptions as strings
-    patterns.push(...this.options.exceptDirs);
-    patterns.push(...this.options.exceptFiles);
-    
-    return patterns;
-  }
-
-  // Search up directory tree for .gitignore
-  findGitignore() {
-    let currentDir = process.cwd();
-    const root = path.parse(currentDir).root;
-    
-    while (currentDir !== root) {
-      const gitignorePath = path.join(currentDir, '.gitignore');
-      
-      if (fs.existsSync(gitignorePath)) {
-        try {
-          const content = fs.readFileSync(gitignorePath, 'utf8').trim();
-          if (content.length > 0) {
-            return gitignorePath;
-          }
-        } catch (err) {
-          // Continue searching if can't read
-        }
-      }
-      
-      const parentDir = path.dirname(currentDir);
-      if (parentDir === currentDir) {
-        break;
-      }
-      currentDir = parentDir;
-    }
-    
-    return null;
-  }
-
-  parseGitignoreContent(content) {
-    const patterns = [];
-    const lines = content.split('\n');
-    
-    for (let line of lines) {
-      line = line.trim();
-      
-      // Skip empty lines and comments
-      if (!line || line.startsWith('#')) continue;
-      
-      // Handle negation patterns
-      const isNegation = line.startsWith('!');
-      if (isNegation) {
-        line = line.slice(1); // Remove the ! prefix
-      }
-      
-      // Clean up directory and root patterns
-      if (line.endsWith('/')) {
-        line = line.slice(0, -1);
-      }
-      if (line.startsWith('/')) {
-        line = line.slice(1);
-      }
-      
-      // Store pattern with negation flag
-      patterns.push({
-        pattern: line,
-        isNegation: isNegation
-      });
-    }
-    
-    return patterns;
+    return normalizedItemPath.startsWith(normalizedDirPath + '/') || 
+           normalizedItemPath === normalizedDirPath;
   }
 
   shouldIgnore(itemName, relativePath) {
+    if (this.options.debug) {
+      console.log(`\n--- Checking ignore for: ${itemName} ---`);
+      console.log(`Relative path: ${relativePath}`);
+    }
+    
+    // Get directory path of the item
+    const itemDirectory = path.dirname(relativePath);
+    const normalizedItemDir = itemDirectory === '.' ? '' : itemDirectory;
+    
+    // Find all .gitignore files that apply to this path
+    const applicableGitignores = this.gitignoreFiles.filter(gitignore => {
+      const applies = this.isPathInDirectory(normalizedItemDir, gitignore.relativePath);
+      if (this.options.debug && applies) {
+        const location = gitignore.relativePath === '' ? 'root' : gitignore.relativePath;
+        console.log(`  Applies: ${location} .gitignore`);
+      }
+      return applies;
+    });
+    
+    // Sort by specificity (root first, then more specific)
+    applicableGitignores.sort((a, b) => a.relativePath.length - b.relativePath.length);
+    
     let shouldIgnoreItem = false;
     
-    // Process patterns in order (important for negation)
-    for (const patternObj of this.ignorePaths) {
-      // Handle legacy string patterns (for DEFAULT_IGNORE_PATTERNS and ALWAYS_IGNORE)
-      if (typeof patternObj === 'string') {
-        if (this.matchesPattern(patternObj, itemName, relativePath)) {
-          shouldIgnoreItem = true;
-        }
-        continue;
+    // Apply patterns in hierarchical order
+    for (const gitignore of applicableGitignores) {
+      // Calculate relative path from this .gitignore's directory to the item
+      let relativeFromGitignore;
+      if (gitignore.relativePath === '') {
+        relativeFromGitignore = relativePath;
+      } else {
+        relativeFromGitignore = path.relative(gitignore.relativePath, relativePath);
       }
       
-      // Handle object patterns with negation support
-      const { pattern, isNegation } = patternObj;
+      // Normalize path separators
+      relativeFromGitignore = relativeFromGitignore.split(path.sep).join('/');
       
-      if (this.matchesPattern(pattern, itemName, relativePath)) {
-        if (isNegation) {
-          shouldIgnoreItem = false;
-        } else {
-          shouldIgnoreItem = true;
+      if (this.options.debug) {
+        const location = gitignore.relativePath === '' ? 'root' : gitignore.relativePath;
+        console.log(`  Checking against ${location} .gitignore (${gitignore.patterns.length} patterns)`);
+        console.log(`  Relative from .gitignore: ${relativeFromGitignore}`);
+      }
+      
+      // Apply patterns from this .gitignore
+      for (const patternObj of gitignore.patterns) {
+        if (this.matchesPattern(patternObj.pattern, itemName, relativeFromGitignore)) {
+          const previousState = shouldIgnoreItem;
+          shouldIgnoreItem = patternObj.isNegation ? false : true;
+          
+          if (this.options.debug) {
+            const action = patternObj.isNegation ? 'unignored' : 'ignored';
+            const patternDisplay = patternObj.isNegation ? `!${patternObj.pattern}` : patternObj.pattern;
+            console.log(`    Pattern "${patternDisplay}" matched → ${action} (was: ${previousState}, now: ${shouldIgnoreItem})`);
+          }
         }
       }
+    }
+    
+    if (this.options.debug) {
+      console.log(`  Final result: ${shouldIgnoreItem ? 'IGNORE' : 'INCLUDE'}`);
     }
     
     return shouldIgnoreItem;
@@ -385,20 +535,9 @@ class AsciiTreeGenerator {
   }
 
   run() {
-
-    const displayPatterns = this.ignorePaths.map(pattern => {
-      if (typeof pattern === 'string') {
-        return pattern;
-      } else if (pattern && typeof pattern === 'object') {
-        return pattern.isNegation ? `!${pattern.pattern}` : pattern.pattern;
-      }
-      return String(pattern);
-    }).join(', ');
-
     const projectName = path.basename(process.cwd());
     
     console.log(`Generating ASCII tree for: ${projectName}`);
-    console.log(`Ignoring patterns: ${displayPatterns}`);
     
     if (this.options.includePattern) {
       console.log(`Include pattern: ${this.options.includePattern}`);
@@ -598,7 +737,7 @@ OPTIONS:
   --output-name <filename>       Output filename (default: project-ascii-tree.txt)
   --output-path <path>           Output directory. (default: current directory)
   --dry-run                      Show what would be generated without creating file
-  --debug                        Show debug info for pattern matching
+  --debug                        Show debug info for pattern matching and .gitignore processing
   --max-depth <number>           Maximum directory depth to traverse
   --include-pattern <regex>      Only show files matching this regex pattern
   --exclude-pattern <regex>      Exclude files/dirs matching this regex pattern
@@ -615,6 +754,14 @@ REGEX ESCAPING TIPS:
   - Use SINGLE backslash in quotes: "\.js$" not \\\\js$
   - In shell, you may need quotes: --include-pattern "\.js$"
   - Test your pattern with --debug to see what gets matched
+
+GITIGNORE BEHAVIOR:
+  This tool searches for ALL .gitignore files in your project and applies them hierarchically, just like git does:
+  - Root .gitignore applies to the entire project
+  - Subdirectory .gitignore files only apply to their subdirectory and below
+  - Patterns are applied in order from root to most specific
+  - Negation patterns (!) work correctly to override parent directory patterns
+  - .gitignore files in ignored directories are skipped (e.g., won't read .gitignore files from node_modules, .venv, or other ignored directories)
 
 NOTE: Include patterns only apply to files (directories shown for structure).
       Exclude patterns apply to both files and directories.
